@@ -1,0 +1,51 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Authorize Logan Core</title>
+  <style>
+    :root{color-scheme:dark;font-family:system-ui,sans-serif;background:#0c1210;color:#f4f7f5}
+    body{margin:0;min-height:100vh;display:grid;place-items:center;padding:20px;box-sizing:border-box}
+    main{width:min(520px,100%);background:#15211b;border:1px solid #30483a;border-radius:18px;padding:28px;box-shadow:0 20px 60px #0008}
+    h1{margin-top:0;font-size:1.6rem} p{line-height:1.5;color:#c8d5cd}
+    label{display:block;margin:18px 0 6px} input{width:100%;box-sizing:border-box;padding:12px;border-radius:9px;border:1px solid #52685b;background:#0c1210;color:white;font-size:1rem}
+    .actions{display:flex;gap:10px;margin-top:22px} button{border:0;border-radius:9px;padding:12px 16px;font-weight:700;cursor:pointer;background:#d7e5dc;color:#102017} button.primary{background:#35c26b;color:#07150c} button:disabled{opacity:.55;cursor:wait}
+    #status{min-height:1.5em;color:#ffcf70}.detail{background:#0c1210;border-radius:9px;padding:12px;overflow-wrap:anywhere}
+  </style>
+</head>
+<body><main>
+  <h1>Authorize Logan Core</h1>
+  <p id="intro">Sign in to review this MCP client's request.</p>
+  <div id="status" role="status"></div>
+  <section id="login">
+    <label for="email">Email</label><input id="email" type="email" autocomplete="email">
+    <div id="otp-area" hidden><label for="otp">Email code</label><input id="otp" inputmode="numeric" autocomplete="one-time-code"></div>
+    <div class="actions"><button class="primary" id="send">Send code</button><button id="verify" hidden>Verify code</button></div>
+  </section>
+  <section id="consent" hidden>
+    <div class="detail"><strong id="client"></strong><p id="scope"></p></div>
+    <div class="actions"><button class="primary" id="approve">Approve</button><button id="deny">Deny</button></div>
+  </section>
+</main>
+<script type="module">
+import { createClient } from 'https://esm.sh/@supabase/supabase-js@2.57.4';
+const supabase=createClient('https://wgfpnzlcmgagsapctdwy.supabase.co','sb_publishable_EigeyxKZUtnyQviCNQHlww_nQwTHjvy');
+const params=new URLSearchParams(location.search); const authorizationId=params.get('authorization_id');
+const status=document.querySelector('#status'); const login=document.querySelector('#login'); const consent=document.querySelector('#consent');
+const setStatus=(v)=>status.textContent=v||''; const busy=(v)=>document.querySelectorAll('button').forEach(b=>b.disabled=v);
+async function showConsent(){
+  if(!authorizationId){setStatus('Missing authorization request. Start again from your MCP client.');return;}
+  const {data,error}=await supabase.auth.oauth.getAuthorizationDetails(authorizationId);
+  if(error){setStatus(error.message);return;}
+  if(!('authorization_id' in data)){location.assign(data.redirect_url);return;}
+  document.querySelector('#client').textContent=data.client?.name||'MCP client';
+  document.querySelector('#scope').textContent='Requested access: '+(data.scope||'Logan Core');
+  login.hidden=true;consent.hidden=false;setStatus('');
+}
+async function initialize(){const {data}=await supabase.auth.getSession();if(data.session)await showConsent();}
+document.querySelector('#send').onclick=async()=>{busy(true);setStatus('');const email=document.querySelector('#email').value.trim();const {error}=await supabase.auth.signInWithOtp({email,options:{shouldCreateUser:true}});busy(false);if(error){setStatus(error.message);return;}document.querySelector('#otp-area').hidden=false;document.querySelector('#verify').hidden=false;setStatus('Check your email for the sign-in code.');};
+document.querySelector('#verify').onclick=async()=>{busy(true);const email=document.querySelector('#email').value.trim();const token=document.querySelector('#otp').value.trim();const {error}=await supabase.auth.verifyOtp({email,token,type:'email'});busy(false);if(error){setStatus(error.message);return;}await showConsent();};
+async function decide(approve){busy(true);const result=approve?await supabase.auth.oauth.approveAuthorization(authorizationId):await supabase.auth.oauth.denyAuthorization(authorizationId);busy(false);if(result.error){setStatus(result.error.message);return;}location.assign(result.data.redirect_url);}
+document.querySelector('#approve').onclick=()=>decide(true);document.querySelector('#deny').onclick=()=>decide(false);initialize();
+</script></body></html>
